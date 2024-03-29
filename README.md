@@ -12,7 +12,7 @@ Em determinados contextos de engenharia de dados, surge a necessidade de disponi
 - **Debezium:** conector de captura de dados de alteração (CDC) open-source, utilizado para capturar mudanças em bancos de dados e transformá-las em um fluxo de eventos em tempo real. 
 - **Python:** Linguagem de programação utilizada para realizar toda a etapa de processamento.
 - **DuckDb:** biblioteca multiuso que dentre suas funções é capaz ser utilizada como engine de processamento, sendo capaz de realizar consultas diretamente no Minio.
-- 
+  
 <p align="left">
 <img src="/img/postgres-logo.png" alt="postgres-logo" height="50" /> 
 <img src="/img/docker-logo.png" alt="docker" height="50" />
@@ -28,13 +28,11 @@ Em determinados contextos de engenharia de dados, surge a necessidade de disponi
 
 ## Etapas do Projeto
 
-O provisionamento da infraestrutura é conduzido através do Terraform, sendo organizado em três pastas distintas. A primeira pasta, denominada "cloudsql" (link), é utilizada para a configuração inicial do banco de dados, criando a instância necessária. A segunda, chamada "stream" (link), abrange a provisão completa da infraestrutura do projeto, desde a criação do script até a configuração do Datastream. Por fim, a última pasta, chamada "trigger" (link), é responsável por configurar uma trigger no Cloud Build associada a um repositório. Dessa forma, sempre que uma mudança é realizada no script ou na infraestrutura, basta fazer um commit no Git para que o deploy seja automaticamente acionado. 
-
 ### 1. Configuração Inicial do Banco de Dados Postgres
 
 Na primeira etapa do projeto, é imprescindível realizar o provisionamento de um banco de dados transacional, sendo o Postgres a escolha feita para desempenhar essa função como fonte de dados primária. Este banco será responsável pela replicação dos dados em tempo real. A coleta dos dados será realizada por meio do CDC (Capture Data Changes) ou captura de dados alterados, que consiste na leitura constante dos logs binários do banco. Isso permite rastrear em tempo real qualquer evento que ocorra nas tabelas, reduzindo o impacto nas transações do banco, uma vez que não é uma consulta direta ao banco, mas sim uma leitura de seus logs. 
 
-Para que o banco gere este logs que serão consultados para ser feito o CDC, é necessário realizar uma configuração específica que ativa os requisitos necessários, para isso todas estas configurações são feitas através do arquivo init.sql {colocar link}, que são comandos que serão executados no container do postgres durante sua inicialização. 
+Para que o banco gere este logs que serão consultados para ser feito o CDC, é necessário realizar uma configuração específica que ativa os requisitos necessários, para isso todas estas configurações são feitas através do arquivo [init.sql](config/init.sql), que são comandos que serão executados no container do postgres durante sua inicialização. 
 
 ### 2. Configuração Inicial do Apache Kafka e Conector Debezium
 
@@ -52,19 +50,19 @@ Os dados finais serão disponibilizados por meio da arquitetura de armazenamento
 
 ### 4. Desenvolvimento do Script de Processamento para Leitura e Escrita dos Dados em Cada uma das Camadas do Data Lake
 
-Com todos os serviços provisionados disponíveis, agora é o momento de configurar o processamento dos logs provenientes do banco e criar as eventuais ETLs para cada uma das camadas. Para isso, serão criados quatro containers principais:
-- **Config_init:** Este container realiza as configurações iniciais necessárias para o início da pipeline. Ele consiste em criar os quatro buckets necessários no Minio, criar também no Apache Kafka os tópicos para cada um dos buckets, que serão utilizados como gatilhos para os processamentos, e por fim, realizar a configuração do conector Debezium com as tabelas que devem ser lidas no banco, o que é feito através de uma requisição POST no container do Debezium.
-- **Process_cdc_to_raw:** Este container, ao ser inicializado, realiza uma leitura contínua dos tópicos das tabelas do Kafka. Cada tabela que sofrerá CDC terá seu próprio tópico no Kafka. Assim que uma nova mensagem contendo um log informando algum evento da tabela é recebida no tópico, o container lê essa mensagem e escreve seu conteúdo como JSON na camada RAW no Minio. Além disso, envia uma mensagem para o tópico RAW informando a escrita de um novo objeto, contendo informações de datas, nome do tópico e tabela a qual o JSON se refere.
-- **Process_raw_to_bronze:** Este container lê continuamente o tópico RAW e, assim que uma nova mensagem é recebida, informando o caminho de um novo arquivo JSON na RAW, realiza um SELECT no RAW e escreve os mesmos dados formatados como parquet na camada Bronze.
-- **Process_bronze_to_silver:** Este container lê o tópico Bronze e, assim que aparece uma nova notificação, consulta os dados da Bronze e realiza uma transformação em relação aos nomes das colunas. Em seguida, escreve na camada Silver e envia uma mensagem informando o tópico Silver.
-- **Process_silver_to_gold:** Este container lê o tópico Silver e, assim com novas mensagens, transforma a Silver e formata as tabelas na estrutura solicitada pela área de negócios ou análise de dados. Em seguida, escreve o formato na camada Gold, local no qual os dados serão consumidos.
+Com todos os serviços provisionados disponíveis, agora é o momento de configurar o processamento dos logs provenientes do banco e criar as eventuais ETLs para cada uma das camadas. Cada container consiste a partir de uma imagem gerada de um [Dockerfile](Dockerfile) que é uma imagem python com os requisitos necessario instalados. Para isso, serão criados quatro containers principais:
+- **[Config_init:](src/config_init.py)** Este container realiza as configurações iniciais necessárias para o início da pipeline. Ele consiste em criar os quatro buckets necessários no Minio, criar também no Apache Kafka os tópicos para cada um dos buckets, que serão utilizados como gatilhos para os processamentos, e por fim, realizar a configuração do conector Debezium com as tabelas que devem ser lidas no banco, o que é feito através de uma requisição POST no container do Debezium.
+- **[Process_cdc_to_raw:](src/process_cdc_to_raw.py)** Este container, ao ser inicializado, realiza uma leitura contínua dos tópicos das tabelas do Kafka. Cada tabela que sofrerá CDC terá seu próprio tópico no Kafka. Assim que uma nova mensagem contendo um log informando algum evento da tabela é recebida no tópico, o container lê essa mensagem e escreve seu conteúdo como JSON na camada RAW no Minio. Além disso, envia uma mensagem para o tópico RAW informando a escrita de um novo objeto, contendo informações de datas, nome do tópico e tabela a qual o JSON se refere.
+- **[Process_raw_to_bronze:](src/process_raw_to_bronze.py)** Este container lê continuamente o tópico RAW e, assim que uma nova mensagem é recebida, informando o caminho de um novo arquivo JSON na RAW, realiza um SELECT no RAW e escreve os mesmos dados formatados como parquet na camada Bronze.
+- **[Process_bronze_to_silver:](src/process_bronze_to_silver.py)** Este container lê o tópico Bronze e, assim que aparece uma nova notificação, consulta os dados da Bronze e realiza uma transformação em relação aos nomes das colunas. Em seguida, escreve na camada Silver e envia uma mensagem informando o tópico Silver.
+- **[Process_silver_to_gold:](src/process_silver_to_gold.py)** Este container lê o tópico Silver e, assim com novas mensagens, transforma a Silver e formata as tabelas na estrutura solicitada pela área de negócios ou análise de dados. Em seguida, escreve o formato na camada Gold, local no qual os dados serão consumidos.
 
 ## Observação
-Todo o processamento dos dados é feito através de consultas SQL dentro do próprio Minio, que são salvos fora dos scripts dos containers, e sim na pasta models {colocar link}, simplificando assim o processo de manutenção e até de novas tabelas que serão incluídas. (*Inspiração a partir do DBT, que não é capaz de transformar dados dentro de um datalake, justificando o seu não uso para as etapas de processamento).
+Todo o processamento dos dados é feito através de consultas SQL dentro do próprio Minio, que são salvos fora dos scripts dos containers, e sim na pasta [models](src/models/), simplificando assim o processo de manutenção e até de novas tabelas que serão incluídas. (*Inspiração a partir do DBT, que não é capaz de transformar dados dentro de um datalake, justificando o seu não uso para as etapas de processamento).
 
 Como o arquivo parquet localizado dentro do Minio não funciona de forma semelhante a um banco de dados, não sendo possível incluir na tabela inteira somente uma única linha de forma incremental, a cada inclusão de uma nova linha, é necessário selecionar o conteúdo atual da tabela para a memória, inserir mais uma linha e escrever novamente toda a tabela no lake. Para evitar todos os problemas que isso pode gerar, a tabela é particionada por data, sendo assim, a lógica de sobreescrita é feita dentro de uma data, e não em todo o histórico da tabela, melhorando a eficiência do processo.
 
-Por fim, com todo o código já feito e as eventuais configurações já predefinidas no Docker Compose e demais arquivos de configuração, basta agora subir todos os containers, e a partir de novas eventos de (INSERT, UPDATE, DELETE) nas tabelas predefinidas no banco, esta será replicada em tempo real para o lake, com as eventuais transformações necessárias, pronto para consumo.
+Por fim, com todo o código já feito e as eventuais configurações já predefinidas no  [Docker Compose](docker-compose.yaml) e demais arquivos de configuração, basta agora subir todos os containers, e a partir de novas eventos de (INSERT, UPDATE, DELETE) nas tabelas predefinidas no banco, esta será replicada em tempo real para o lake, com as eventuais transformações necessárias, pronto para consumo.
 
 **O projeto concentra-se no desenvolvimento da lógica e engenharia, e não necessariamente na segurança. Para simplificar o código, não serão criadas variáveis de ambiente para as credenciais, que, em vez disso, serão diretamente incorporadas no código. 
 
