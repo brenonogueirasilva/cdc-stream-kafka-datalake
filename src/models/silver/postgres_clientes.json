@@ -1,0 +1,8 @@
+{
+    "id_payload" : "id_payload", 
+    "id" : "id_cliente", 
+    "nome" : "nm_nome_cliente", 
+    "template_log" : "nm_template_log", 
+    "update_date" : "ts_data_evento", 
+    "data_partition" : "data_partition"
+}

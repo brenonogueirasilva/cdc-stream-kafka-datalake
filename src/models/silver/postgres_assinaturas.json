@@ -1,0 +1,10 @@
+{
+    "id_payload" : "id_payload", 
+    "ID" : "id_assinatura", 
+    "ID CLIENTE" : "id_cliente", 
+    "valor" : "vl_valor_mensalidade",
+    "plano pro ?" : "nm_possui_plano_pro", 
+    "template_log" : "nm_template_log", 
+    "update_date" : "ts_data_evento", 
+    "data_partition" : "data_partition"
+}
