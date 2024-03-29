@@ -1,0 +1,223 @@
+version: '3.6'
+
+networks:
+  cdc-network:
+    name: cdc-network
+    driver: bridge
+    external: false 
+
+services:  
+  postgres:
+    image: postgres:16-bookworm
+    container_name: postgres
+    restart: always
+    volumes:
+      - ./config/init.sql:/docker-entrypoint-initdb.d/init.sql
+    environment:
+      POSTGRES_PASSWORD : /run/secrets/postgres_root_password
+    ports:
+      - 5432:5432
+    secrets:
+      - postgres_root_password
+    networks:
+      - cdc-network
+
+  zookeeper:
+    container_name: zookeeper
+    image: docker.io/bitnami/zookeeper:3.7
+    ports:
+      - "2181:2181"
+    environment:
+      - ALLOW_ANONYMOUS_LOGIN=yes
+    networks:
+      - cdc-network
+    restart: unless-stopped
+
+  kafka:
+    container_name: kafka
+    image: docker.io/bitnami/kafka:2
+    ports:
+      - "9092:9092"
+      - "9093:9093"
+    environment:
+      - ALLOW_PLAINTEXT_LISTENER=yes
+      - KAFKA_CFG_ZOOKEEPER_CONNECT=zookeeper:2181
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CLIENT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      - KAFKA_CFG_LISTENERS=CLIENT://:9092,EXTERNAL://:9093
+      - KAFKA_CFG_ADVERTISED_LISTENERS=CLIENT://kafka:9092,EXTERNAL://localhost:9093
+      - KAFKA_INTER_BROKER_LISTENER_NAME=CLIENT
+    depends_on:
+      - zookeeper
+    networks:
+      - cdc-network
+    restart: unless-stopped
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui
+    container_name: kafka-ui
+    ports:
+      - "18080:8080"
+    restart: always
+    environment:
+      - KAFKA_CLUSTERS_0_NAME=local
+      - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:9092
+      - KAFKA_CLUSTERS_0_ZOOKEEPER=zookeeper:2181
+    depends_on:
+      - kafka
+      - zookeeper
+    networks:
+      - cdc-network
+    
+  cdc-using-debezium-connect:
+      image: debezium/connect:2.3
+      container_name: cdc-using-debezium-connect
+      hostname: cdc-using-debezium-connect
+      restart: always
+      ports:
+          - '8083:8083'
+      environment:
+          BOOTSTRAP_SERVERS: kafka:9092
+          GROUP_ID: 1
+          CONFIG_STORAGE_TOPIC: my_connect_configs
+          OFFSET_STORAGE_TOPIC: my_connect_offsets
+          STATUS_STORAGE_TOPIC: my_connect_statuses
+          ENABLE_DEBEZIUM_SCRIPTING: 'true'
+      depends_on:
+        - kafka
+      networks:
+        - cdc-network
+
+  minio:
+    image: minio/minio:RELEASE.2023-10-24T04-42-36Z.hotfix.0c51d76bb
+    container_name: minio
+    restart: always
+    ports:
+      - "9000:9000"
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: minio123
+    command: server /data
+    networks:
+      - cdc-network
+
+  python-config-init:
+    image: python-kafka
+    container_name: python-config-init 
+    stdin_open: true
+    tty: true
+    # restart: always
+    volumes:
+      - ./src:/code
+    networks:
+      - cdc-network
+    depends_on:
+      - minio
+      - kafka
+      - cdc-using-debezium-connect
+      - postgres
+      - zookeeper
+      - kafka-ui
+    command: ["python", "/code/config_init.py"]
+
+  python_process_cdc_to_raw:
+    image: python-kafka
+    container_name: python_process_cdc_to_raw 
+    stdin_open: true
+    tty: true
+    restart: always
+    volumes:
+      - ./src:/code
+    networks:
+      - cdc-network
+    depends_on:
+      - minio
+      - kafka
+      - cdc-using-debezium-connect
+      - postgres
+      - zookeeper
+      - kafka-ui
+      - python-config-init
+    command: ["python", "/code/process_cdc_to_raw.py"]
+
+  python_process_raw_to_bronze:
+    image: python-kafka
+    container_name: python_process_raw_to_bronze
+    stdin_open: true
+    tty: true
+    restart: always
+    volumes:
+      - ./src:/code
+    networks:
+      - cdc-network
+    depends_on:
+      - minio
+      - kafka
+      - cdc-using-debezium-connect
+      - postgres
+      - zookeeper
+      - kafka-ui
+      - python-config-init
+    command: ["python", "/code/process_raw_to_bronze.py"]
+
+  python_process_bronze_to_silver:
+    image: python-kafka
+    container_name: python_process_bronze_to_silver
+    stdin_open: true
+    tty: true
+    restart: always
+    volumes:
+      - ./src:/code
+    networks:
+      - cdc-network
+    depends_on:
+      - minio
+      - kafka
+      - cdc-using-debezium-connect
+      - postgres
+      - zookeeper
+      - kafka-ui
+      - python-config-init
+    command: ["python", "/code/process_bronze_to_silver.py"]
+
+  python_process_silver_to_gold:
+    image: python-kafka
+    container_name: python_process_silver_to_gold
+    stdin_open: true
+    tty: true
+    restart: always
+    volumes:
+      - ./src:/code
+    networks:
+      - cdc-network
+    depends_on:
+      - minio
+      - kafka
+      - cdc-using-debezium-connect
+      - postgres
+      - zookeeper
+      - kafka-ui
+      - python-config-init
+    command: ["python", "/code/process_silver_to_gold.py"]
+
+  python_teste:
+    image: python-kafka
+    container_name: python_teste
+    stdin_open: true
+    tty: true
+    restart: always
+    volumes:
+      - ./src:/code
+    networks:
+      - cdc-network
+    depends_on:
+      - minio
+      - kafka
+      - cdc-using-debezium-connect
+      - postgres
+      - zookeeper
+      - kafka-ui
+      - python-config-init
+
+secrets:
+  postgres_root_password:
+    file: ./secrets/postgres_root_password.txt
