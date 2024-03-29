@@ -1,74 +1,83 @@
-# Projeto de Engenharia de Dados: Versionamento de Tabelas com Streaming de Dados usando Dataflow 
+# Projeto de Engenharia de Dados: Disponibilização de Tabelas em Tempo Real em Ambiente Datalake através de Streaming de Dados com CDC e Apache Kafka 
 
 ## Introdução
 
-Dentro do meu ambiente de trabalho, nos deparamos com tabelas em bancos transacionais que passam por edições e exclusões físicas de registros, resultando na impossibilidade de consultar seus históricos, sendo possível apenas visualizar o seu estado atual. 
-
-Este projeto tem como objetivo desenvolver uma pipeline capaz de versionar os registros dessas tabelas, criando um histórico acessível em tempo real para a área de negócios. Para lidar com os dados em tempo real, optamos pelo uso de tecnologia de streaming, especificamente o Apache Beam, executado no ambiente em nuvem da Google (GCP) por meio de um job no Dataflow. Além disso, para capturar as alterações nos registros do banco, utilizaremos um serviço de Captura de Dados Alterados (CDC) gerenciado no GCP chamado Datastream. 
+Em determinados contextos de engenharia de dados, surge a necessidade de disponibilizar dados de uma tabela transacional em tempo real. Para isso, é crucial utilizar streaming de dados, que envolve a coleta, ingestão e processamento de dados em tempo real. Este projeto tem como objetivo desenvolver uma pipeline capaz de coletar dados em tempo real de um banco transacional Postgres, utilizando para isso um conector CDC chamado Debezium, juntamente com o Apache Kafka, uma tecnologia popular de streaming. Os dados serão então disponibilizados em um datalake, usando o Minio como armazenamento de objeto e o DuckDB como engine de processamento. Todo o projeto será desenvolvido em ambiente local com o uso do Docker. 
 
 ## Tecnologias Utilizadas
 
-- **MySql:** banco de dados relacional no qual está armazenado as tabelas que serão versionadas. 
-- **CloudSql:** serviço gerenciado de banco de dados relacional na Cloud do Google utilizado para o Mysql. 
-- **Data Stream:** serviço gerenciado que irá capturar os dados alterados (CDC) no banco MySql.
-- **Cloud Data Storage:** modelo de armazenamento de objetos que será utilizado para armazenar logs e scripts necessarios para o projeto.
-- **Pub Sub:** serviço de mensageria, capaz de notificar o recebimento de novos logs de alterações de registos das tabelas.
-- **Data Flow:** serviço gerenciado de execução de scripts stream ou lote.
-- **Apache Beam:** framework utilizado para o desenvolvimento de pipelines ETL’s em stream e lote.
-- **BigQuery:** Um sistema de armazenamento na nuvem no qual será armazenada a tabela final com os dados versionados.
-- **Clound Build:** Servico que possibilita implementar o deploy automatico da infraestrutura na nuvem, funcionando de forma integrado ao GitHub.
-- **GitHub:** Repositório responsável pelo versionamento do codigo, sendo também o gatilho do Cloud Build sempre que sofrer novas alterações. 
-- **Terraform:** Ferramenta que permite o provisionamento eficiente de toda a infraestrutura necessária, seguindo a metodologia de Infraestrutura como Código (IaC).
-- **Docker:** Utilizado para criar imagens que servirá como base do template que será utilizado no dataflow.
+- **Postgres:** Banco de dados relacional que irá consistir como origem dos dados.
+- **Docker:** tecnologia que permite executar todas as tecnologias do projeto através de contêineres.  
+- **Kafka:** plataforma de streaming de dados distribuída, usada para processamento de eventos em tempo real e armazenamento de fluxos de dados em larga escala. 
+- **Debezium:** conector de captura de dados de alteração (CDC) open-source, utilizado para capturar mudanças em bancos de dados e transformá-las em um fluxo de eventos em tempo real. 
+- **Python:** Linguagem de programação utilizada para realizar toda a etapa de processamento.
+- **DuckDb:** biblioteca multiuso que dentre suas funções é capaz ser utilizada como engine de processamento, sendo capaz de realizar consultas diretamente no Minio.
+- 
+<p align="left">
+<img src="/img/postgres-logo.png" alt="postgres-logo" height="50" /> 
+<img src="/img/docker-logo.png" alt="docker" height="50" />
+<img src="/img/kafka-logo.png" alt="kafka-logo" height="50" />
+<img src="/img/debezium-logo.png" alt="debezium" height="50" />
+<img src="/img/python-logo.png" alt="python" height="50" />
+<img src="/img/duckdb-logo.png" alt="duckdb" height="50" />  
+</p>
 
 ## Arquitetura
 
-![Diagrama de Arquitetura](inserir-link-para-imagem)
+![Diagrama de Arquitetura](img/arquitetura_cdc_kafka.png)
 
 ## Etapas do Projeto
 
 O provisionamento da infraestrutura é conduzido através do Terraform, sendo organizado em três pastas distintas. A primeira pasta, denominada "cloudsql" (link), é utilizada para a configuração inicial do banco de dados, criando a instância necessária. A segunda, chamada "stream" (link), abrange a provisão completa da infraestrutura do projeto, desde a criação do script até a configuração do Datastream. Por fim, a última pasta, chamada "trigger" (link), é responsável por configurar uma trigger no Cloud Build associada a um repositório. Dessa forma, sempre que uma mudança é realizada no script ou na infraestrutura, basta fazer um commit no Git para que o deploy seja automaticamente acionado. 
 
-### 1. Configuração do banco de Dados
+### 1. Configuração Inicial do Banco de Dados Postgres
 
-Como etapa inicial, é necessário ter um banco de dados devidamente configurado, pois este será a fonte de onde geraremos as tabelas versionadas. No contexto deste projeto, optamos por utilizar um banco de dados MySQL hospedado no CloudSql do GCP. Embora seja possível utilizar outros Sistemas Gerenciadores de Bancos de Dados (SGBD), alguns ajustes na configuração da conexão no Datastream são necessários. Para provisionar o banco de dados, utilizamos um script em Terraform (link), que cria a instância do banco de dados MySQL, configura um usuário para consultas e ajusta algumas flags para ativar os logs binários do banco. Essa ativação é crucial para que o serviço de CDC possa identificar as mudanças nas tabelas. 
+Na primeira etapa do projeto, é imprescindível realizar o provisionamento de um banco de dados transacional, sendo o Postgres a escolha feita para desempenhar essa função como fonte de dados primária. Este banco será responsável pela replicação dos dados em tempo real. A coleta dos dados será realizada por meio do CDC (Capture Data Changes) ou captura de dados alterados, que consiste na leitura constante dos logs binários do banco. Isso permite rastrear em tempo real qualquer evento que ocorra nas tabelas, reduzindo o impacto nas transações do banco, uma vez que não é uma consulta direta ao banco, mas sim uma leitura de seus logs. 
 
-### 2. Criação do Bucket e Tópico no Pub/Sub 
+Para que o banco gere este logs que serão consultados para ser feito o CDC, é necessário realizar uma configuração específica que ativa os requisitos necessários, para isso todas estas configurações são feitas através do arquivo init.sql {colocar link}, que são comandos que serão executados no container do postgres durante sua inicialização. 
 
-Posteriormente, é necessário criar um bucket para receber todos os logs com informações de alteração das tabelas desejadas. Após a criação do bucket, é essencial também criar um tópico no Pub/Sub, atuando como uma fila de mensagens que gera uma notificação sempre que um novo log ou objeto é inserido no bucket. Para que o Cloud Storage funcione como um publicador do Pub/Sub, é necessário configurar uma flag no bucket, o que também é feito usando o Terraform. 
+### 2. Configuração Inicial do Apache Kafka e Conector Debezium
 
-### 3. Criação do Script no Apache Beam
+Após o banco de dados ser configurado para gerar os logs necessários para ser feito o CDC, é hora de provisionar o serviço responsável por receber esses logs, que é o Apache Kafka. O Kafka é uma tecnologia open source com uma ampla gama de casos de uso. No contexto deste projeto, ele é utilizado como um sistema de mensageria assíncrono com padrão Pub/Sub (Publicação/Assinatura), o que ajuda em situações de eventual indisponibilidade dos serviços de processamento, que serão discutidos posteriormente. Além disso, o Kafka é capaz de encaminhar as mensagens para qualquer consumidor interessado.
 
-Em seguida, configuramos um script capaz de lidar com streaming de dados, funcionando como um assinante do tópico do Pub/Sub criado anteriormente. Esse script recebe uma nova notificação sempre que um novo objeto é adicionado ao Cloud Storage. Ele lê essa notificação, que contém o caminho do novo objeto, e, posteriormente, lê o próprio log. O log inclui informações sobre a ação no banco (inserção, exclusão ou atualização), os detalhes da linha e quando a ação ocorreu. 
+Para que o Kafka possa receber os logs gerados pelo banco sempre que ocorrerem eventos nas tabelas configuradas, é necessário utilizar um conector específico capaz de lidar com o CDC. Para essa finalidade, será utilizado o Debezium, que realiza uma leitura constante do Postgres e envia mensagens para o Kafka sempre que ocorrer qualquer tipo de evento nas tabelas.
 
-O script processa esse log e escreve o resultado da alteração em uma linha de uma tabela no BigQuery. Registrando todos os eventos do banco, o script possibilita o versionamento completo dos registros da tabela. No caso de uma deleção, por exemplo, é inserida uma nova linha em branco indicando que o registro foi deletado fisicamente. Através do ID da linha e da data de alteração, a presença ou ausência na consulta depende do momento em que a informação é buscada. Todo o script é desenvolvido usando o Apache Beam (link), um framework capaz de trabalhar tanto em lote quanto em streaming. O executor desta rotina na nuvem é o Dataflow. 
+### 3. Configuração Inicial do Minio como Armazenamento de Objetos
 
-Geralmente, o Dataflow possui alguns templates prontos. No entanto, como é necessário um script personalizado, é preciso criar um template próprio. Isso envolve a criação de uma imagem Docker com o código desejado, além de um arquivo JSON chamado "metadados" (link), que contém todos os parâmetros do script. A partir desses dois elementos, um template flex é gerado, utilizado para criar o job no Dataflow. A criação do template é feita por meio de comandos gcloud, executados por uma trigger do Cloud Build (a ser discutida posteriormente). Não foi possível utilizar o Terraform para esta etapa, pois a criação do template ainda não possui suporte dentro do Terraform. Posteriormente, a criação e ativação do job no Dataflow, com base no template criado anteriormente, são realizadas usando o Terraform. 
+Os dados finais serão disponibilizados por meio da arquitetura de armazenamento DataLake. Para isso, será necessário um serviço de armazenamento de objetos chamado Minio. Este serviço irá possuir quatro buckets principais:
+1. RAW: Este bucket será utilizado como armazenamento primário das mensagens dos logs, salvando os dados em seu formato bruto, sem qualquer tipo de processamento adicional.
+2. Bronze: Esta camada consiste em ler os arquivos no formato bruto e salvar os mesmos dados no formato parquet. O formato parquet é um tipo de armazenamento colunar altamente otimizado, capaz de reduzir consideravelmente o espaço de armazenamento e aumentar a eficiência de consulta.
+3. Silver: Esta camada basicamente irá modificar os nomes das colunas e realizar alguma mudança de tipagem nos dados.
+4. Gold: Aqui será armazenada a tabela final que será utilizada para consumo. Esta tabela ficará no formato mais próximo do que o time de negócios ou os analistas de dados necessitam.
 
-### 4. Configuração do Datastream
+### 4. Desenvolvimento do Script de Processamento para Leitura e Escrita dos Dados em Cada uma das Camadas do Data Lake
 
-Com o banco de dados em funcionamento, seus logs binários ativados e o job do Dataflow já operacional, é hora de configurar o Datastream. Este serviço gerenciado é responsável por enviar os logs de alterações de registro para o bucket criado anteriormente. A configuração do Datastream é a última etapa, garantindo que os logs iniciais não sejam perdidos até o início do funcionamento do script no Dataflow. 
+Com todos os serviços provisionados disponíveis, agora é o momento de configurar o processamento dos logs provenientes do banco e criar as eventuais ETLs para cada uma das camadas. Para isso, serão criados quatro containers principais:
+- **Config_init:** Este container realiza as configurações iniciais necessárias para o início da pipeline. Ele consiste em criar os quatro buckets necessários no Minio, criar também no Apache Kafka os tópicos para cada um dos buckets, que serão utilizados como gatilhos para os processamentos, e por fim, realizar a configuração do conector Debezium com as tabelas que devem ser lidas no banco, o que é feito através de uma requisição POST no container do Debezium.
+- **Process_cdc_to_raw:** Este container, ao ser inicializado, realiza uma leitura contínua dos tópicos das tabelas do Kafka. Cada tabela que sofrerá CDC terá seu próprio tópico no Kafka. Assim que uma nova mensagem contendo um log informando algum evento da tabela é recebida no tópico, o container lê essa mensagem e escreve seu conteúdo como JSON na camada RAW no Minio. Além disso, envia uma mensagem para o tópico RAW informando a escrita de um novo objeto, contendo informações de datas, nome do tópico e tabela a qual o JSON se refere.
+- **Process_raw_to_bronze:** Este container lê continuamente o tópico RAW e, assim que uma nova mensagem é recebida, informando o caminho de um novo arquivo JSON na RAW, realiza um SELECT no RAW e escreve os mesmos dados formatados como parquet na camada Bronze.
+- **Process_bronze_to_silver:** Este container lê o tópico Bronze e, assim que aparece uma nova notificação, consulta os dados da Bronze e realiza uma transformação em relação aos nomes das colunas. Em seguida, escreve na camada Silver e envia uma mensagem informando o tópico Silver.
+- **Process_silver_to_gold:** Este container lê o tópico Silver e, assim com novas mensagens, transforma a Silver e formata as tabelas na estrutura solicitada pela área de negócios ou análise de dados. Em seguida, escreve o formato na camada Gold, local no qual os dados serão consumidos.
 
-Para iniciar a configuração do Dataflow, serviço gerenciado de captura de alterações (CDC) de banco do GCP, lemos os logs binários do banco de dados e identificamos qualquer tipo de alteração em suas tabelas, desde deleção, edição até inserção. Como etapa inicial da configuração, é necessário criar uma conexão com o MySQL, além de criar um usuário para o Dataflow (este usuário já foi criado através do Terraform na etapa anterior 1 ???????????????????????ww). Por fim, é necessário definir onde o Dataflow armazenará as alterações, seja no BigQuery ou no Cloud Storage. O problema da primeira opção é que o resultado é uma tabela igual à tabela de origem. Em casos de edição do registro, teremos apenas o último registro, o que não atende ao projeto, pois o objetivo é capturar o histórico completo. Para isso, usamos o Cloud Storage, pois nele teremos todos os logs, sendo possível processá-los e armazenar no BigQuery todos os registros versionados. Toda essa configuração é feita usando o Terraform (link). 
+## Observação
+Todo o processamento dos dados é feito através de consultas SQL dentro do próprio Minio, que são salvos fora dos scripts dos containers, e sim na pasta models {colocar link}, simplificando assim o processo de manutenção e até de novas tabelas que serão incluídas. (*Inspiração a partir do DBT, que não é capaz de transformar dados dentro de um datalake, justificando o seu não uso para as etapas de processamento).
 
-### 5. Criação da Trigger do Cloud Build
+Como o arquivo parquet localizado dentro do Minio não funciona de forma semelhante a um banco de dados, não sendo possível incluir na tabela inteira somente uma única linha de forma incremental, a cada inclusão de uma nova linha, é necessário selecionar o conteúdo atual da tabela para a memória, inserir mais uma linha e escrever novamente toda a tabela no lake. Para evitar todos os problemas que isso pode gerar, a tabela é particionada por data, sendo assim, a lógica de sobreescrita é feita dentro de uma data, e não em todo o histórico da tabela, melhorando a eficiência do processo.
 
-Basicamente, todas as etapas mencionadas da etapa 2 até 4 são realizadas por meio de um único script do Terraform. A função agora é configurar uma trigger usando o Cloud Build. Assim, sempre que houver uma alteração no script, na infraestrutura do projeto ou na inclusão de novas tabelas no CDC, basta realizar um novo commit no repositório configurado, e um deploy automático de toda a infraestrutura será acionado, seguindo as boas práticas de CI e CD. 
+Por fim, com todo o código já feito e as eventuais configurações já predefinidas no Docker Compose e demais arquivos de configuração, basta agora subir todos os containers, e a partir de novas eventos de (INSERT, UPDATE, DELETE) nas tabelas predefinidas no banco, esta será replicada em tempo real para o lake, com as eventuais transformações necessárias, pronto para consumo.
+
+**O projeto concentra-se no desenvolvimento da lógica e engenharia, e não necessariamente na segurança. Para simplificar o código, não serão criadas variáveis de ambiente para as credenciais, que, em vez disso, serão diretamente incorporadas no código. 
 
 ## Pré-Requisitos
 
-Antes de prosseguir com este projeto, é necessário ter o Docker Desktop instalado em sua máquina local.
+Antes de prosseguir com este projeto, é necessário ter o Docker Desktop instalado em sua máquina local. 
 
 ## Executando o Projeto
 
-Para execução do codigo é necessário possuir terraform instalado na máquina local, uma conta no GCP com criação de um usuário de serviço com acesso a todos os servicos mencionados no projeto. 
-Executando o Projeto
-Copie o diretório do projeto para uma pasta local em seu computador.
-    1. Abra o terminal do seu computador e mova até o diretório do projeto.
-    2. Crie uma conta de servico no GCP com a credencias a todos os serviços mencionados, baixe uma chave em um arquivo json e coloque o arquivo no diretório raiz com nome creds_terraform.json
-    3. Mova para  pasta cloudsql e execute os comandos: terraform init, terraform plan, terraform apply
-    4. Crie um arquivo json github_token.json, e crie uma chave github_token com o respectivo token da sua conta do github.
-    5. Vá ao arquivo variaveis do terraform e subsitua pelos seu respectivo valores
-    6. Crie um repositorio no git hub e suba todo o codigo pro projeto
-    7. Mova para  pasta trigger e execute os comandos: terraform init, terraform plan, terraform apply ,sempre que for feito um novo commit a infraestrutura sera executada.
+Siga os passos abaixo para executar este projeto:
+1. Copie o diretório do projeto para uma pasta local em seu computador.
+2. Abra o terminal do seu computador e mova até o diretório do projeto.
+3. Crie a imagem do container do Python executando o seguinte comando: `docker build -t python-kafka .`
+4. Crie os containers com o seguinte comando: `docker-compose up -d. `
+
 
