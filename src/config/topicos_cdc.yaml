@@ -1,0 +1,7 @@
+cdc-using-debezium-topic-postgres.postgres.assinaturas:
+  tabela: postgres.assinaturas 
+  pasta_minio : postgres_assinaturas
+
+cdc-using-debezium-topic-postgres.postgres.clientes:
+  tabela: postgres.clientes 
+  pasta_minio : postgres_clientes
