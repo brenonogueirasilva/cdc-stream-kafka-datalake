@@ -1,0 +1,7 @@
+kafka-python==2.0.2
+minio==7.1.15
+requests==2.31.0
+pyyaml==6.0.1
+duckdb==0.10.1
+ipykernel==6.29.3
+pandas==2.2.1
